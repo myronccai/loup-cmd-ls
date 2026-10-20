@@ -1,28 +1,37 @@
 @mode(host.dual)
 
-from appinfo import (APP_NAME, APP_VERSION, APP_SUMMARY);
-from cli.args import (DEFAULT_GREETING);
+from appinfo import (APP_NAME, APP_VERSION);
 
 pub func usage(): string {
     let lines = [
-        i"usage: {$ APP_NAME $} [OPTIONS] COMMAND [ARGS...]",
+        i"Usage: {$ APP_NAME $} [OPTION]... [FILE]...",
+        "List information about the FILEs (the current directory by default).",
+        "Sort entries alphabetically.",
         "",
-        APP_SUMMARY,
+        "  -a, --all                  do not ignore entries starting with .",
+        "  -A, --almost-all           do not list implied . and ..",
+        "  -C                         list entries by columns",
+        "  -d, --directory            list directories themselves, not their contents",
+        "  -F, --classify[=WHEN]      append indicator (/ or @) to entries WHEN",
+        "  -r, --reverse              reverse order while sorting",
+        "  -R, --recursive            list subdirectories recursively",
+        "  -1                         list one file per line (the default)",
+        "      --help                 display this help and exit",
+        "      --version              output version information and exit",
         "",
-        "Commands:",
-        "  hello [NAME]          Print a greeting (NAME defaults to 'world')",
-        "  help                  Show this help",
+        "WHEN is 'always' (the default if omitted), 'never' or 'auto'; 'auto' acts",
+        "like 'never' because the output is not assumed to be a terminal.",
+        "-C fits the columns into the width given by the COLUMNS environment",
+        "variable (80 if unset; 0 means no limit).",
         "",
-        "Options:",
-        i"  -g, --greeting TEXT   Greeting used by 'hello' (default: {$ DEFAULT_GREETING $})",
-        "      --shout           Print the greeting in upper case",
-        "  -v, --verbose         Print diagnostic messages to stderr",
-        "  -h, --help            Show this help and exit",
-        "  -V, --version         Show the version and exit",
+        "Exit status:",
+        " 0  if OK,",
+        " 1  if minor problems (e.g., cannot access subdirectory),",
+        " 2  if serious trouble (e.g., cannot access command-line argument).",
     ];
     return lines.join("\n");
 }
 
 pub func version_line(): string {
-    return i"{$ APP_NAME $} {$ APP_VERSION $}";
+    return i"{$ APP_NAME $} (loup-cmd-{$ APP_NAME $}) {$ APP_VERSION $}";
 }

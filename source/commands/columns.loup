@@ -1,0 +1,139 @@
+@mode(host.dual)
+
+# Column layout for -C, a port of GNU ls's calculate_columns,
+# print_many_per_line and indent: names run down the columns, each column is
+# as wide as its longest name plus two spaces, the most columns that fit
+# strictly inside the line width win, and the gaps are filled with tabs
+# (tab stops every 8 columns) and spaces.
+
+# The narrowest possible column: a one-character name and its two-space gap.
+const MIN_COLUMN_WIDTH: int = 3;
+const TAB_SIZE: int = 8;
+
+# The width of a cell as the terminal shows it. Characters are counted, so a
+# double-width character counts as one.
+pub func cell_width(cell: string): int {
+    return cell.len();
+}
+
+# The whitespace that moves the cursor from column `start` to column `to`:
+# a tab whenever the next tab stop does not overshoot `to`, then spaces.
+pub func indent(start: int, to: int): string {
+    var pieces: list[string] = [];
+    var pos = start;
+    while (pos < to) {
+        if (to / TAB_SIZE > (pos + 1) / TAB_SIZE) {
+            pieces.push("\t");
+            pos += TAB_SIZE - pos % TAB_SIZE;
+        } else {
+            pieces.push(" ");
+            pos += 1;
+        }
+    }
+    return pieces.join("");
+}
+
+# The number of columns GNU ls would use for these widths and line length,
+# and each column's width (the last one without its two-space gap).
+pub struct Fit {
+    pub columns: int;
+    pub widths: list[int];
+}
+
+pub func fit_columns(widths: list[int], line_length: int): Fit {
+    let n = widths.len();
+    var max_idx = line_length / MIN_COLUMN_WIDTH;
+    if (line_length % MIN_COLUMN_WIDTH != 0) {
+        max_idx += 1;
+    }
+    let max_cols = if (0 < max_idx and max_idx < n) { max_idx } else { n };
+
+    # For every candidate column count i + 1: whether it still fits, its
+    # line length, and its column widths. The widths of all candidates share
+    # one flat list; candidate i's start at offset i * (i + 1) / 2.
+    var valid: list[bool] = [];
+    var line_len: list[int] = [];
+    var col_arr: list[int] = [];
+    for (i in 0..max_cols) {
+        valid.push(true);
+        line_len.push((i + 1) * MIN_COLUMN_WIDTH);
+        for (j in 0..(i + 1)) {
+            col_arr.push(MIN_COLUMN_WIDTH);
+        }
+    }
+
+    for (fileno in 0..n) {
+        for (i in 0..max_cols) {
+            if (!valid[i]) {
+                continue;
+            }
+            let rows = (n + i) / (i + 1);
+            let idx = fileno / rows;
+            let slot = i * (i + 1) / 2 + idx;
+            var real_length = widths[fileno];
+            if (idx != i) {
+                real_length += 2;
+            }
+            if (col_arr[slot] < real_length) {
+                line_len[i] = line_len[i] + real_length - col_arr[slot];
+                col_arr[slot] = real_length;
+                valid[i] = line_len[i] < line_length;
+            }
+        }
+    }
+
+    var cols = max_cols;
+    while (cols > 1 and !valid[cols - 1]) {
+        cols -= 1;
+    }
+    var chosen: list[int] = [];
+    if (cols >= 1) {
+        let start = (cols - 1) * cols / 2;
+        for (j in 0..cols) {
+            chosen.push(col_arr[start + j]);
+        }
+    }
+    return Fit(columns = if (cols < 1) { 1 } else { cols }, widths = chosen);
+}
+
+# Lays the cells out in columns. A line length of 0 means "no limit": every
+# cell goes on one line, two spaces apart, as GNU ls does for COLUMNS=0.
+pub func layout_columns(cells: list[string], line_length: int): list[string] {
+    var lines: list[string] = [];
+    let n = cells.len();
+    if (n == 0) {
+        return lines;
+    }
+    if (line_length <= 0) {
+        lines.push(cells.join("  "));
+        return lines;
+    }
+
+    var widths: list[int] = [];
+    for (cell in cells) {
+        widths.push(cell_width(cell));
+    }
+    let fit = fit_columns(widths, line_length);
+    let rows = n / fit.columns + (if (n % fit.columns != 0) { 1 } else { 0 });
+
+    for (row in 0..rows) {
+        var pieces: list[string] = [];
+        var col = 0;
+        var fileno = row;
+        var pos = 0;
+        while (true) {
+            let width = widths[fileno];
+            pieces.push(cells[fileno]);
+            let max_width = fit.widths[col];
+            col += 1;
+            fileno += rows;
+            if (fileno >= n) {
+                break;
+            }
+            pieces.push(indent(pos + width, pos + max_width));
+            pos += max_width;
+        }
+        lines.push(pieces.join(""));
+    }
+    return lines;
+}

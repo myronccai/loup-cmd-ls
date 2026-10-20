@@ -1,0 +1,81 @@
+@mode(host.dual)
+
+# Pure parts of the listing, plus a listing of tests/fixtures/tree (the tests
+# run from the repository root).
+
+from debug.assert import (expect, expectEq);
+from cli.args import (parse_args);
+from commands.fsinfo import (Kind);
+from commands.ls import (Entry, parse_width, is_shown, sort_entries, indicator, format_entries, list_operands);
+from commands.quote import (quote);
+
+func test_parse_width(): void {
+    expectEq(parse_width("").value, 80, "unset");
+    expectEq(parse_width("40").value, 40, "40");
+    expectEq(parse_width("0").value, 0, "0: no limit");
+    let bad = parse_width("abc");
+    expectEq(bad.value, 80, "invalid falls back to 80");
+    expectEq(bad.warning, "ignoring invalid width in environment variable COLUMNS: 'abc'", "warning");
+    expectEq(parse_width("-5").value, 80, "negative is invalid");
+}
+
+func test_hidden_names(): void {
+    let plain = parse_args(["x"]).unwrap();
+    let all = parse_args(["-a"]).unwrap();
+    let almost = parse_args(["-A"]).unwrap();
+    expect(is_shown("file", plain), "plain name");
+    expect(!is_shown(".hidden", plain), "dot-file hidden by default");
+    expect(is_shown(".hidden", almost) and !is_shown("..", almost), "-A");
+    expect(is_shown(".", all) and is_shown(".hidden", all), "-a");
+}
+
+func entry(name: string, kind: Kind): Entry {
+    return Entry(name = name, kind = kind);
+}
+
+func test_sort_by_bytes(): void {
+    let sorted = sort_entries([entry("b", Kind.File), entry("B", Kind.File), entry(".a", Kind.File), entry("a", Kind.File)], false);
+    expectEq(sorted[0].name, ".a", "dot first");
+    expectEq(sorted[1].name, "B", "upper case before lower case");
+    expectEq(sorted[3].name, "b", "last");
+    expectEq(sort_entries(sorted, true)[0].name, "b", "reversed");
+}
+
+func test_indicators(): void {
+    expectEq(indicator(Kind.Dir), "/", "directory");
+    expectEq(indicator(Kind.LinkDir), "@", "link to a directory");
+    expectEq(indicator(Kind.Dangling), "@", "dangling link");
+    expectEq(indicator(Kind.File), "", "file");
+}
+
+func test_format_entries(): void {
+    let es = [entry("d", Kind.Dir), entry("f", Kind.File)];
+    let plain = format_entries(es, parse_args(["x"]).unwrap(), 80);
+    expectEq(plain.join(","), "d,f", "one per line");
+    let classified = format_entries(es, parse_args(["-F"]).unwrap(), 80);
+    expectEq(classified.join(","), "d/,f", "-F");
+    let columns = format_entries(es, parse_args(["-CF"]).unwrap(), 80);
+    expectEq(columns.join(","), "d/  f", "-C");
+}
+
+func test_quote(): void {
+    expectEq(quote("plain"), "'plain'", "single quotes");
+    expectEq(quote("a b"), "'a b'", "space");
+    expectEq(quote("it's"), "\"it's\"", "double quotes around a single quote");
+    expectEq(quote("a'b$c"), "'a'\\''b$c'", "escaped single quote");
+}
+
+func test_list_fixture_tree(): void {
+    let listing = list_operands(parse_args(["-aRF", "tests/fixtures/tree"]).unwrap(), "");
+    expectEq(listing.status, 0, "status");
+    expectEq(listing.lines.join("|"),
+        "tests/fixtures/tree:|./|../|.hidden|alpha|beta|sub/||tests/fixtures/tree/sub:|./|../|gamma",
+        "-aRF listing");
+}
+
+func test_missing_operand(): void {
+    let listing = list_operands(parse_args(["tests/fixtures/tree/nope", "tests/fixtures/tree/alpha"]).unwrap(), "");
+    expectEq(listing.status, 2, "serious trouble");
+    expectEq(listing.lines.join("|"), "tests/fixtures/tree/alpha", "the file is still listed");
+    expectEq(listing.errors[0], "cannot access 'tests/fixtures/tree/nope': No such file or directory", "message");
+}

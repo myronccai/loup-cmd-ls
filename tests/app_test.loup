@@ -4,22 +4,26 @@
 # normal output and error messages.
 
 from debug.assert import (expectEq);
-from appinfo import (EXIT_OK, EXIT_USAGE);
-from cli.app import (run);
+from appinfo import (EXIT_OK, EXIT_FAILURE, EXIT_USAGE);
+from cli.app import (run, usage_status);
 
 func test_version_succeeds(): void {
     expectEq(run(["--version"]), EXIT_OK, "--version");
 }
 
-func test_hello_succeeds(): void {
-    expectEq(run(["hello", "tests"]), EXIT_OK, "hello NAME");
+func test_help_succeeds(): void {
+    expectEq(run(["--help"]), EXIT_OK, "--help");
 }
 
-func test_unknown_command_is_usage_error(): void {
-    expectEq(run(["bogus"]), EXIT_USAGE, "unknown command");
+func test_listing_succeeds(): void {
+    expectEq(run(["tests/fixtures/tree"]), EXIT_OK, "ls DIR");
 }
 
-func test_missing_command_is_usage_error(): void {
-    let none: list[string] = [];
-    expectEq(run(none), EXIT_USAGE, "no command");
+func test_unknown_option_is_usage_error(): void {
+    expectEq(run(["-l"]), EXIT_USAGE, "-l");
+}
+
+func test_bad_classify_argument_is_status_1(): void {
+    expectEq(usage_status("invalid argument 'x' for '--classify'"), EXIT_FAILURE, "argmatch");
+    expectEq(usage_status("invalid option -- 'z'"), EXIT_USAGE, "getopt");
 }

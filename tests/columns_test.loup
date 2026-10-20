@@ -1,0 +1,62 @@
+@mode(host.dual)
+
+from debug.assert import (expect, expectEq);
+from commands.columns import (indent, fit_columns, layout_columns);
+
+func test_indent_uses_tabs_then_spaces(): void {
+    expectEq(indent(5, 8), "\t", "to the next tab stop");
+    expectEq(indent(23, 25), "  ", "no tab stop in between");
+    expectEq(indent(12, 25), "\t\t ", "two tabs and a space");
+    expectEq(indent(4, 4), "", "nothing to do");
+}
+
+func names(): list[string] {
+    return ["eight", "eleven", "five", "four", "longername_here", "nine", "one", "self",
+            "seven", "six", "sub", "ten", "three", "twelve", "two", "x"];
+}
+
+func test_fit_four_columns_in_forty(): void {
+    var widths: list[int] = [];
+    for (n in names()) {
+        widths.push(n.len());
+    }
+    let fit = fit_columns(widths, 40);
+    expectEq(fit.columns, 4, "four columns");
+    expectEq(fit.widths[0], 8, "eleven + 2");
+    expectEq(fit.widths[1], 17, "longername_here + 2");
+    expectEq(fit.widths[3], 6, "last column has no gap");
+}
+
+# The layout GNU ls 9.5 prints for `COLUMNS=40 ls -C`.
+func test_layout_matches_gnu(): void {
+    let lines = layout_columns(names(), 40);
+    expectEq(lines.len(), 4, "four rows");
+    expectEq(lines[0], "eight\tlongername_here  seven\tthree", "row 1");
+    expectEq(lines[1], "eleven\tnine\t\t six\ttwelve", "row 2");
+    expectEq(lines[3], "four\tself\t\t ten\tx", "row 4");
+}
+
+func test_narrow_width_gives_one_column(): void {
+    let lines = layout_columns(["alpha", "beta"], 5);
+    expectEq(lines.len(), 2, "one per line");
+    expectEq(lines[1], "beta", "no padding");
+}
+
+func test_zero_width_means_one_line(): void {
+    let lines = layout_columns(["a", "bb", "c"], 0);
+    expectEq(lines.len(), 1, "one line");
+    expectEq(lines[0], "a  bb  c", "two spaces apart");
+}
+
+func test_short_last_column(): void {
+    # Five names in two columns: three rows, the second column has two.
+    let lines = layout_columns(["a", "b", "c", "d", "e"], 6);
+    expectEq(lines.len(), 3, "three rows");
+    expectEq(lines[0], "a  d", "row 1");
+    expectEq(lines[2], "c", "row 3 has one name");
+}
+
+func test_no_cells(): void {
+    let none: list[string] = [];
+    expect(layout_columns(none, 80).len() == 0, "no lines");
+}

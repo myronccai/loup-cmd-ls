@@ -1,0 +1,261 @@
+@mode(host.dual)
+
+# ls: lists the operands (the current directory by default). Files named on
+# the command line come first, then each directory's contents, with a
+# `DIR:` header when there is more than one thing to list or -R is on.
+#
+# Everything up to the final output is built as values: `list_operands`
+# returns the lines to print, the error messages and the exit status, and
+# only `run_ls` writes them.
+
+from appinfo import (APP_NAME, EXIT_OK, EXIT_FAILURE, EXIT_TROUBLE);
+from cli.args import (Options);
+from commands.columns import (layout_columns);
+from commands.fsinfo import (Kind, join_path, read_names, names_key, operand_kind, entry_kind, missing_reason);
+from commands.quote import (quote);
+
+pub const DEFAULT_WIDTH: int = 80;
+
+pub struct Entry {
+    pub name: string;
+    pub kind: Kind;
+}
+
+# What ls has to say: lines for standard output, messages for standard
+# error (without the `ls: ` prefix) and the exit status.
+pub struct Listing {
+    pub lines: list[string];
+    pub errors: list[string];
+    pub status: int;
+}
+
+# The line width for -C from the value of COLUMNS ("" when unset), and the
+# warning GNU ls prints for an invalid value.
+pub struct Width {
+    pub value: int;
+    pub warning: string;
+}
+
+pub func parse_width(text: string): Width {
+    if (text.len() == 0) {
+        return Width(value = DEFAULT_WIDTH, warning = "");
+    }
+    var value = 0;
+    for (ch in text) {
+        let digit = "0123456789".index_of(ch);
+        if (digit < 0) {
+            return Width(
+                value = DEFAULT_WIDTH,
+                warning = i"ignoring invalid width in environment variable COLUMNS: {$ quote(text) $}",
+            );
+        }
+        # Anything this wide is "no limit" in practice; stop before overflow.
+        if (value < 1000000000) {
+            value = value * 10 + digit;
+        }
+    }
+    return Width(value = value, warning = "");
+}
+
+# Whether a name from a directory listing is shown: dot-files only with -a
+# or -A, and `.` and `..` only with -a.
+pub func is_shown(name: string, opts: Options): bool {
+    if (!name.startsWith(".")) {
+        return true;
+    }
+    if (opts.all) {
+        return true;
+    }
+    return opts.almost_all and name != "." and name != "..";
+}
+
+# Entries in byte order of their names (the C locale's order), or reversed.
+pub func sort_entries(entries: list[Entry], reverse: bool): list[Entry] {
+    var out: list[Entry] = [];
+    for (e in entries) {
+        out.push(e);
+    }
+    out.sort(func(a: Entry, b: Entry): int {
+        let c = a.name.compareTo(b.name);
+        return if (reverse) { -c } else { c };
+    });
+    return out;
+}
+
+# The -F indicator: `/` for a directory, `@` for the symbolic links that can
+# be recognised.
+pub func indicator(kind: Kind): string {
+    return match kind {
+        Kind.Dir => "/",
+        Kind.LinkDir => "@",
+        Kind.Dangling => "@",
+        _ => "",
+    };
+}
+
+# The lines that show these entries: one per line, or in columns with -C.
+pub func format_entries(entries: list[Entry], opts: Options, width: int): list[string] {
+    var cells: list[string] = [];
+    for (e in entries) {
+        if (opts.classify) {
+            cells.push(e.name + indicator(e.kind));
+        } else {
+            cells.push(e.name);
+        }
+    }
+    if (opts.columns) {
+        return layout_columns(cells, width);
+    }
+    return cells;
+}
+
+func higher(a: int, b: int): int {
+    return if (a > b) { a } else { b };
+}
+
+# The entries of directory `path` that are shown, sorted, and with their
+# kinds when -F or -R needs them.
+pub func directory_entries(path: string, names: list[string], opts: Options): list[Entry] {
+    let need_kinds = opts.classify or opts.recursive;
+    let key = if (need_kinds) { names_key(names) } else { "" };
+    var entries: list[Entry] = [];
+    var shown: list[string] = [];
+    if (opts.all) {
+        shown.push(".");
+        shown.push("..");
+    }
+    for (name in names) {
+        if (is_shown(name, opts)) {
+            shown.push(name);
+        }
+    }
+    for (name in shown) {
+        let kind = if (need_kinds) { entry_kind(path, name, key) } else { Kind.File };
+        entries.push(Entry(name = name, kind = kind));
+    }
+    return sort_entries(entries, opts.reverse);
+}
+
+# Lists directory `path`, and with -R every real subdirectory below it, as
+# blocks separated by empty lines. A directory that cannot be read is an
+# error: serious for an operand, minor for a subdirectory.
+pub func list_directory(path: string, show_header: bool, opts: Options, width: int, operand: bool): Listing {
+    var lines: list[string] = [];
+    var errors: list[string] = [];
+    var status = EXIT_OK;
+
+    let names = match read_names(path) {
+        Ok(found) => found,
+        Err(reason) => {
+            errors.push(i"cannot open directory {$ quote(path) $}: {$ reason $}");
+            let failed = if (operand) { EXIT_TROUBLE } else { EXIT_FAILURE };
+            return Listing(lines = lines, errors = errors, status = failed);
+        },
+    };
+
+    if (show_header) {
+        lines.push(path + ":");
+    }
+    let entries = directory_entries(path, names, opts);
+    for (line in format_entries(entries, opts, width)) {
+        lines.push(line);
+    }
+
+    if (opts.recursive) {
+        for (e in entries) {
+            if (e.kind != Kind.Dir or e.name == "." or e.name == "..") {
+                continue;
+            }
+            let sub = list_directory(join_path(path, e.name), true, opts, width, false);
+            if (sub.lines.len() > 0) {
+                lines.push("");
+                for (line in sub.lines) {
+                    lines.push(line);
+                }
+            }
+            for (msg in sub.errors) {
+                errors.push(msg);
+            }
+            status = higher(status, sub.status);
+        }
+    }
+    return Listing(lines = lines, errors = errors, status = status);
+}
+
+# Everything `ls` prints for the parsed options; `columns_env` is the value
+# of COLUMNS ("" when unset).
+pub func list_operands(opts: Options, columns_env: string): Listing {
+    var lines: list[string] = [];
+    var errors: list[string] = [];
+    var status = EXIT_OK;
+
+    var width = DEFAULT_WIDTH;
+    if (opts.columns) {
+        let parsed = parse_width(columns_env);
+        width = parsed.value;
+        if (parsed.warning.len() > 0) {
+            errors.push(parsed.warning);
+        }
+    }
+
+    var operands: list[string] = [];
+    for (op in opts.operands) {
+        operands.push(op);
+    }
+    if (operands.len() == 0) {
+        operands.push(".");
+    }
+
+    # GNU ls shows a command-line link to a directory as the link (not the
+    # directory's contents) only with -F or -d.
+    var files: list[Entry] = [];
+    var dirs: list[Entry] = [];
+    for (op in operands) {
+        let kind = operand_kind(op, opts.classify);
+        if (kind == Kind.Missing) {
+            errors.push(i"cannot access {$ quote(op) $}: {$ missing_reason(op) $}");
+            status = EXIT_TROUBLE;
+        } else if (kind == Kind.Dir and !opts.directory) {
+            dirs.push(Entry(name = op, kind = kind));
+        } else {
+            files.push(Entry(name = op, kind = kind));
+        }
+    }
+    let sorted_files = sort_entries(files, opts.reverse);
+    let sorted_dirs = sort_entries(dirs, opts.reverse);
+
+    for (line in format_entries(sorted_files, opts, width)) {
+        lines.push(line);
+    }
+
+    # A lone directory operand (or the default `.`) gets no header.
+    let show_header = (opts.recursive or sorted_files.len() > 0
+        or opts.operands.len() > 1 or sorted_dirs.len() != 1);
+    for (d in sorted_dirs) {
+        let sub = list_directory(d.name, show_header, opts, width, true);
+        if (sub.lines.len() > 0) {
+            if (lines.len() > 0) {
+                lines.push("");
+            }
+            for (line in sub.lines) {
+                lines.push(line);
+            }
+        }
+        for (msg in sub.errors) {
+            errors.push(msg);
+        }
+        status = higher(status, sub.status);
+    }
+    return Listing(lines = lines, errors = errors, status = status);
+}
+
+pub func run_ls(opts: Options): int {
+    let listing = list_operands(opts, env("COLUMNS") ?? "");
+    for (msg in listing.errors) {
+        printErr(i"{$ APP_NAME $}: {$ msg $}");
+    }
+    if (listing.lines.len() > 0) {
+        print(listing.lines.join("\n") + "\n");
+    }
+    return listing.status;
+}

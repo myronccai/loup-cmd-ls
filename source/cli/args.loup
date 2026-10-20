@@ -1,45 +1,115 @@
 @mode(host.dual)
 
-# Command-line parsing. Loup 1.26 has no CLI library, so arguments are
-# parsed by hand into an Options value.
-#
-# Grammar: [OPTIONS] COMMAND [OPERANDS...]
-#   Options may appear anywhere before `--`; everything after `--` is an
-#   operand. Value options accept `--name VALUE` and `--name=VALUE`.
-
-pub const DEFAULT_GREETING: string = "Hello";
+# Command-line parsing for ls, following GNU getopt_long: options may appear
+# anywhere among the operands, short options combine (`-aRF`), `--` ends the
+# options, and a long option may be abbreviated to any unambiguous prefix
+# (`--rec` for `--recursive`).
 
 pub struct Options {
-    pub command: string;
-    pub operands: list[string];
     pub help: bool;
     pub version: bool;
-    pub verbose: bool;
-    pub shout: bool;
-    pub greeting: string;
+    # -a: list every entry, including `.` and `..`.
+    pub all: bool;
+    # -A: list entries starting with `.`, but not `.` and `..`.
+    pub almost_all: bool;
+    # -C: columns; -1 (the default here): one name per line.
+    pub columns: bool;
+    pub recursive: bool;
+    # -F: append `/` to directories and `@` to symbolic links that can be told
+    # apart (see commands/fsinfo.loup).
+    pub classify: bool;
+    pub reverse: bool;
+    pub directory: bool;
+    pub operands: list[string];
+}
+
+# In the order of GNU ls's option table, which its "ambiguous" message follows.
+const LONG_OPTIONS: string = "all directory reverse almost-all classify recursive help version";
+
+# The arguments --classify accepts, as GNU argmatch lists them, and whether
+# each one turns classification on. `auto` means "when standard output is a
+# terminal", which this program cannot tell, so it behaves like `never`.
+const WHEN_NAMES: string = "always yes force never no none auto tty if-tty";
+const WHEN_ON: string = "always yes force";
+
+func when_error(kind: string, value: string): string {
+    let lines = [
+        i"{$ kind $} argument '{$ value $}' for '--classify'",
+        "Valid arguments are:",
+        "  - 'always', 'yes', 'force'",
+        "  - 'never', 'no', 'none'",
+        "  - 'auto', 'tty', 'if-tty'",
+    ];
+    return lines.join("\n");
+}
+
+# Decodes the WHEN of --classify=WHEN. Like argmatch, an abbreviation is
+# accepted when every argument it could stand for means the same thing.
+pub func parse_when(value: string): Result[bool, string] {
+    var matches: list[string] = [];
+    for (name in WHEN_NAMES.split(" ")) {
+        if (name == value) {
+            return Ok(WHEN_ON.split(" ").contains(name));
+        }
+        if (value.len() > 0 and name.startsWith(value)) {
+            matches.push(name);
+        }
+    }
+    if (matches.len() == 0) {
+        return Err(when_error("invalid", value));
+    }
+    let first = WHEN_ON.split(" ").contains(matches[0]);
+    for (name in matches) {
+        if (WHEN_ON.split(" ").contains(name) != first) {
+            return Err(when_error("ambiguous", value));
+        }
+    }
+    return Ok(first);
+}
+
+# Resolves a long option name, which may be an unambiguous prefix.
+pub func match_long(name: string): Result[string, string] {
+    var matches: list[string] = [];
+    for (opt in LONG_OPTIONS.split(" ")) {
+        if (opt == name) {
+            return Ok(opt);
+        }
+        if (opt.startsWith(name)) {
+            matches.push(opt);
+        }
+    }
+    if (matches.len() == 1) {
+        return Ok(matches[0]);
+    }
+    if (matches.len() == 0) {
+        return Err("");
+    }
+    var quoted: list[string] = [];
+    for (m in matches) {
+        quoted.push(i"'--{$ m $}'");
+    }
+    return Err(i"option '--{$ name $}' is ambiguous; possibilities: {$ quoted.join(" ") $}");
 }
 
 pub func parse_args(argv: list[string]): Result[Options, string] {
-    var command = "";
-    var operands: list[string] = [];
     var help = false;
     var version = false;
-    var verbose = false;
-    var shout = false;
-    var greeting = DEFAULT_GREETING;
-    var only_operands = false;
+    var all = false;
+    var almost_all = false;
+    var columns = false;
+    var recursive = false;
+    var classify = false;
+    var reverse = false;
+    var directory = false;
+    var operands: list[string] = [];
 
     var i = 0;
+    var only_operands = false;
     while (i < argv.len()) {
         let arg = argv[i];
         i += 1;
-
         if (only_operands or arg == "-" or !arg.startsWith("-")) {
-            if (command.is_empty()) {
-                command = arg;
-            } else {
-                operands.push(arg);
-            }
+            operands.push(arg);
             continue;
         }
         if (arg == "--") {
@@ -47,52 +117,86 @@ pub func parse_args(argv: list[string]): Result[Options, string] {
             continue;
         }
 
-        # Split `--name=value` into its name and inline value.
-        var name = arg;
-        var inline_value: Option[string] = None;
-        if (arg.startsWith("--") and arg.contains("=")) {
-            let parts = arg.split("=");
-            name = parts[0];
-            inline_value = Some(parts.slice(1).join("="));
-        }
-
-        if (name == "-g" or name == "--greeting") {
-            match inline_value {
-                Some(v) => { greeting = v; },
-                None => {
-                    if (i >= argv.len()) {
-                        return Err(i"option '{$ name $}' requires a value");
+        if (arg.startsWith("--")) {
+            let body = arg.slice(2);
+            let eq = body.index_of("=");
+            let name = if (eq >= 0) { body.slice(0, eq) } else { body };
+            let long = match match_long(name) {
+                Ok(found) => found,
+                Err(msg) => {
+                    if (msg.len() > 0) {
+                        return Err(msg);
                     }
-                    greeting = argv[i];
-                    i += 1;
+                    return Err(i"unrecognized option '{$ arg $}'");
                 },
+            };
+            if (eq >= 0 and long != "classify") {
+                return Err(i"option '--{$ long $}' doesn't allow an argument");
+            }
+            if (long == "all") {
+                all = true;
+                almost_all = false;
+            } else if (long == "almost-all") {
+                almost_all = true;
+                all = false;
+            } else if (long == "classify") {
+                if (eq >= 0) {
+                    classify = match parse_when(body.slice(eq + 1)) {
+                        Ok(on) => on,
+                        Err(msg) => { return Err(msg); },
+                    };
+                } else {
+                    classify = true;
+                }
+            } else if (long == "directory") {
+                directory = true;
+            } else if (long == "help") {
+                help = true;
+            } else if (long == "recursive") {
+                recursive = true;
+            } else if (long == "reverse") {
+                reverse = true;
+            } else {
+                version = true;
             }
             continue;
         }
 
-        if (inline_value.is_some()) {
-            return Err(i"option '{$ name $}' does not take a value");
-        }
-        if (name == "-h" or name == "--help") {
-            help = true;
-        } else if (name == "-V" or name == "--version") {
-            version = true;
-        } else if (name == "-v" or name == "--verbose") {
-            verbose = true;
-        } else if (name == "--shout") {
-            shout = true;
-        } else {
-            return Err(i"unknown option '{$ name $}'");
+        for (ch in arg.slice(1)) {
+            if (ch == "a") {
+                all = true;
+                almost_all = false;
+            } else if (ch == "A") {
+                almost_all = true;
+                all = false;
+            } else if (ch == "1") {
+                columns = false;
+            } else if (ch == "C") {
+                columns = true;
+            } else if (ch == "R") {
+                recursive = true;
+            } else if (ch == "F") {
+                classify = true;
+            } else if (ch == "r") {
+                reverse = true;
+            } else if (ch == "d") {
+                directory = true;
+            } else {
+                return Err(i"invalid option -- '{$ ch $}'");
+            }
         }
     }
 
     return Ok(Options(
-        command = command,
-        operands = operands,
         help = help,
         version = version,
-        verbose = verbose,
-        shout = shout,
-        greeting = greeting,
+        all = all,
+        almost_all = almost_all,
+        columns = columns,
+        recursive = recursive,
+        classify = classify,
+        reverse = reverse,
+        directory = directory,
+        operands = operands,
     ));
 }

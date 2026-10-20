@@ -1,7 +1,8 @@
 # AGENTS.md
 
-This repository is a GitHub template for building a command-line application
-in the Loup programming language. The program is built as a native executable.
+This repository recreates GNU `ls` in the Loup programming language, as part
+of the loup-cmd series of example applications. The program is `host.dual`
+Loup built as a native executable.
 
 ## Skills
 
@@ -20,23 +21,24 @@ mistakes. Load those only as needed.
 ```text
 .
 ├── package.lppkg                # Loup manifest: name, version, toolchain, [build] entry, [test] pattern
-├── Makefile                     # run, check, test, build, ci, clean
+├── Makefile                     # run, check, test, build, e2e, ci, clean
 ├── source/                      # all Loup code; modules import each other by path from here
 │   ├── main.loup                # entry point: func main() calls run(runtime.args())
 │   ├── appinfo.loup             # APP_NAME, APP_VERSION, APP_SUMMARY, exit statuses
 │   ├── cli/
-│   │   ├── args.loup            # struct Options, parse_args()
+│   │   ├── args.loup            # struct Options, parse_args(): GNU getopt_long rules
 │   │   ├── usage.loup           # usage(), version_line()
-│   │   └── app.loup             # run(), dispatch(): routes commands, maps errors to exit statuses
-│   └── commands/                # one module per command
-│       └── hello.loup           # sample command: run_hello()
-├── tests/                       # tests: <module>_test.loup files with func test_*(): void
-│   ├── app_test.loup
-│   ├── args_test.loup
-│   └── hello_test.loup
-├── specs/                       # feature specs: <feature>/requirements.md, design.md, tasks.md
-│   ├── README.md
-│   └── command-line-interface/
+│   │   └── app.loup             # run(): parse, --help/--version, run_ls, exit status
+│   └── commands/
+│       ├── ls.loup              # list_operands(), list_directory(), run_ls()
+│       ├── columns.loup         # layout_columns(): GNU's -C layout
+│       ├── fsinfo.loup          # Kind, operand_kind(), entry_kind(): kinds without stat()
+│       └── quote.loup           # quote(): names in error messages
+├── tests/
+│   ├── *_test.loup              # unit tests: func test_*(): void
+│   ├── fixtures/tree/           # a small tree listed by ls_test.loup
+│   └── e2e.sh                   # end-to-end tests of the native binary (fixtures built under $TMP)
+├── specs/ls/                    # requirements.md, design.md, tasks.md
 ├── skills/loup-programmer/      # the Loup skill and its references
 ├── .github/workflows/ci.yml     # installs Loup and runs `make ci`
 └── build/                       # build output (git-ignored)
@@ -49,14 +51,15 @@ and `clang` 17 or later for native builds.
 
 | Task | Command | Notes |
 |------|---------|-------|
-| Run from source | `make run ARGS="hello Ann --shout"` | `loup run source/main.loup -- ARGS` |
+| Run from source | `make run ARGS="-F -R source"` | `loup run source/main.loup -- ARGS`; see the note on `loup run` below |
 | Type-check | `make check` | checks `source/main.loup` and every module it imports; tests are not checked |
 | Run all tests | `make test` | every `tests/*_test.loup` |
 | Run matching tests | `make test TEST_ARGS="--filter value"` | tests whose name contains `value` |
 | Run one test file | `make test TEST_ARGS="--file tests/args_test.loup"` | |
-| Build | `make build` | native binary at `build/myapp` |
-| Run the binary | `build/myapp --help` | |
-| Everything CI runs | `make ci` | check, test, build, then `build/myapp --version` |
+| Build | `make build` | native binary at `build/ls` |
+| Run the binary | `build/ls --help` | |
+| End-to-end tests | `make e2e` | runs `tests/e2e.sh build/ls`: output compared byte for byte |
+| Everything CI runs | `make ci` | check, test, build, e2e, then `build/ls --version` |
 | Clean | `make clean` | removes `build/` and `.temp/` |
 
 Run `make ci` before reporting a change as done. `loup run` and the native
@@ -70,21 +73,15 @@ both, and sets `LOUPPATH=source` for tests.
 
 ## Making a change
 
-1. Write or update the spec in `specs/<feature>/` (see [specs/README.md](specs/README.md)).
+1. Update the spec in `specs/ls/` (see [specs/README.md](specs/README.md)).
 2. Change the code under `source/`.
-3. Add or update tests in `tests/`.
+3. Add or update unit tests in `tests/` and cases in `tests/e2e.sh`.
 4. Run `make ci`.
-5. Tick the finished tasks in `specs/<feature>/tasks.md`.
+5. Tick the finished tasks in `specs/ls/tasks.md`.
 
-To add a command:
-
-1. Create `source/commands/<name>.loup` with `@mode(host.dual)` and
-   `pub func run_<name>(opts: Options): int`, returning an exit status from
-   `appinfo`.
-2. Add an arm for it to `dispatch` in `source/cli/app.loup`.
-3. Describe it in `usage()` in `source/cli/usage.loup`.
-4. Add any new options to `Options` and `parse_args` in `source/cli/args.loup`.
-5. Add `tests/<name>_test.loup`.
+Keep behaviour in functions that return values (`list_operands` returns a
+`Listing` with the output lines, the error messages and the exit status) so
+unit tests can check it; only `run_ls` prints.
 
 ## Conventions
 
@@ -100,6 +97,15 @@ To add a command:
   `len() == 0`.
 - Keep `APP_VERSION` in `source/appinfo.loup` equal to `version` in
   `package.lppkg`.
+- `io.fs` has no `stat()`/`lstat()`, and `isDir`/`isFile`/`exists` follow
+  symbolic links. `source/commands/fsinfo.loup` explains how file kinds are
+  derived; keep that logic there.
+- The native `io.fs` never throws (a missing directory lists as empty),
+  while the Stage0 interpreter used by `make test` throws `IoError`; code
+  must handle both. Under the self-hosted `loup run` (`make run`), `listDir`
+  hides dot-files, so `make run` and `build/ls` can differ.
+- `system.text.parseInt` and `system.env.get` do not link natively: parse
+  digits by hand and read the environment with the prelude `env("NAME")`.
 - The skill's examples use the `loup init` layout (`src/`, `tests/`, and
   `from ..src.x import` in tests). This project uses `source/` and
   `tests/` with plain imports; follow this file.
