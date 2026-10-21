@@ -6,11 +6,10 @@
 #
 # - A dangling symbolic link makes `exists` false although the directory
 #   entry is there; `entry_present` looks the name up in its directory.
-# - A symbolic link to a directory looks like the directory. The kernel
-#   resolves `link/..` to the parent of the link's target, so for a real
-#   directory `dir/..` lists the same names as the directory that contains
-#   `dir`, and for a link it (almost always) does not. `is_symlinked_dir`
-#   uses that to keep -R out of linked directories and to mark them `@`.
+# - A symbolic link to a directory looks like the directory.
+#   `is_symlinked_dir` asks `test -h` in a child process (as loup-cmd-find
+#   does), only for directories and only when -F or -R needs to know, so
+#   that -R stays out of linked directories and -F marks them `@`.
 #
 # Runtime: host.dual. Compiled into the native binary build/ls by
 # `make build`; Stage0 interprets the same code for `make run` and
@@ -21,6 +20,7 @@
 
 from io.fs import (exists, isDir, isFile, listDir);
 from io.path import (basename, dirname);
+from io.proc import (exitCode);
 
 pub enum Kind {
     File,
@@ -72,29 +72,6 @@ pub func read_names(path: string): Result[list[string], string] {
     }
 }
 
-# A copy of the names in byte order.
-pub func sorted_names(names: list[string]): list[string] {
-    var out: list[string] = [];
-    for (name in names) {
-        out.push(name);
-    }
-    out.sort(func(a: string, b: string): int { return a.compareTo(b); });
-    return out;
-}
-
-# One string that is equal for two directories exactly when they hold the
-# same names (a name cannot contain `/`).
-pub func names_key(names: list[string]): string {
-    return sorted_names(names).join("/");
-}
-
-func listing_key(path: string): string {
-    return match read_names(path) {
-        Ok(names) => names_key(names),
-        Err(reason) => "",
-    };
-}
-
 # Whether there is a directory entry at `path`, even a dangling link.
 pub func entry_present(path: string): bool {
     if (exists(path)) {
@@ -110,23 +87,23 @@ pub func entry_present(path: string): bool {
     };
 }
 
-# Whether the directory `path` is reached through a symbolic link, judged by
-# whether `path/..` holds the names in `parent_key` (the names_key of the
-# directory that contains `path`). A path ending in `/`, `.` or `..` is
-# taken as a directory: GNU ls follows a link named with a trailing slash.
-pub func is_symlinked_dir(path: string, parent_key: string): bool {
+# Whether the directory `path` is reached through a symbolic link. io.fs
+# follows links and has no lstat(), so `test -h` is asked: one process per
+# directory checked. A path ending in `/`, `.` or `..` is taken as a
+# directory: GNU ls follows a link named with a trailing slash.
+pub func is_symlinked_dir(path: string): bool {
     let name = basename(path);
     if (path.endsWith("/") or name == "" or name == "." or name == "..") {
         return false;
     }
-    return listing_key(join_path(path, "..")) != parent_key;
+    return exitCode(["test", "-h", path]) == 0;
 }
 
 # What a command-line operand is. Linked directories are told apart only
 # when `detect_links` is set (for -F), since GNU ls otherwise follows them.
 pub func operand_kind(path: string, detect_links: bool): Kind {
     if (isDir(path)) {
-        if (detect_links and is_symlinked_dir(path, listing_key(dirname(path)))) {
+        if (detect_links and is_symlinked_dir(path)) {
             return Kind.LinkDir;
         }
         return Kind.Dir;
@@ -143,15 +120,14 @@ pub func operand_kind(path: string, detect_links: bool): Kind {
     return Kind.Missing;
 }
 
-# What the entry `name` of directory `dir` is; `dir_key` is the names_key of
-# `dir`'s own listing.
-pub func entry_kind(dir: string, name: string, dir_key: string): Kind {
+# What the entry `name` of directory `dir` is.
+pub func entry_kind(dir: string, name: string): Kind {
     if (name == "." or name == "..") {
         return Kind.Dir;
     }
     let path = join_path(dir, name);
     if (isDir(path)) {
-        if (is_symlinked_dir(path, dir_key)) {
+        if (is_symlinked_dir(path)) {
             return Kind.LinkDir;
         }
         return Kind.Dir;

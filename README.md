@@ -165,7 +165,9 @@ that cannot be accessed; a usage error).
 ## Differences from GNU ls
 
 Loup 1.26.0's `io.fs` has no `stat()` or `lstat()`: it can tell files from
-directories but sees nothing else, and it follows symbolic links.
+directories but sees nothing else, and it follows symbolic links. Links to
+directories are recognised by asking `test -h` (one process per directory
+entry, only with `-F` or `-R`).
 
 - No `-l`, `-t`, `-S`, `-h` or any other option that needs sizes, times,
   owners or permissions, and no `-i`, `-s`, `-m`, `-x`, `-Q`, `--color`,
@@ -173,13 +175,11 @@ directories but sees nothing else, and it follows symbolic links.
 - There is no way to ask whether standard output is a terminal, so the
   default is one name per line (what GNU ls does when its output is piped);
   pass `-C` for columns. `--classify=auto` acts like `never`.
-- `-F` marks directories `/` and only the symbolic links it can recognise
-  `@`: dangling links, and links to directories that are not siblings of the
-  link (found by checking that `link/..` is not the link's own directory).
-  Links to files get no `@`, executables no `*`, FIFOs and sockets no `|` or
-  `=`. A link to a sibling directory (`same -> real`) is shown as a
-  directory, and `-R` descends into it. Links to `.` or `..` are recognised,
-  so `-R` cannot loop on them.
+- `-F` marks directories `/`, and `@` only on dangling links and links to
+  directories. Links to files get no `@` (that would cost a process per
+  file), executables no `*`, FIFOs and sockets no `|` or `=`. As in GNU ls,
+  `-R` does not descend into a link to a directory, and a link named on the
+  command line is followed unless `-F` or `-d` is given.
 - Names are sorted by their bytes, as in the C locale (`LC_ALL=C ls`), and
   column widths count characters rather than display cells.
 - In the native build an unreadable directory lists as empty instead of

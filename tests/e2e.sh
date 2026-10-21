@@ -112,11 +112,15 @@ check "-R trailing slash" 0 $'dir/:\none\nsub\ntwo\nup\n\ndir/sub:\ndeep\n' -R d
 check "-Rr" 0 $'dir:\nup\ntwo\nsub\none\n\ndir/sub:\ndeep\n' -Rr dir
 check "-aR empty" 0 $'empty:\n.\n..\n' -aR empty
 
-# Symbolic links to directories: one elsewhere (far) is recognised; one to
-# a sibling (same) cannot be told from a directory (README: Differences)
-check "-F links" 0 $'far@\nreal/\nsame/\n' -F ../links
+# Symbolic links to directories (far, and same, a link to its sibling real)
+# are told apart by `test -h`: -F marks them `@` and -R does not enter
+# them, as GNU ls does; a link named on the command line is still followed.
+check "-F links" 0 $'far@\nreal/\nsame@\n' -F ../links
 check "link operand followed" 0 $'deep\n' ../links/far/sub
-check "-R links" 0 $'../links:\nfar\nreal\nsame\n\n../links/real:\nfile\n\n../links/same:\nfile\n' -R ../links
+check "sibling link operand" 0 $'file\n' ../links/same
+check "-F link operand"    0 $'../links/same@\n' -F ../links/same
+check "-R links" 0 $'../links:\nfar\nreal\nsame\n\n../links/real:\nfile\n' -R ../links
+check "-RF links" 0 $'../links:\nfar@\nreal/\nsame@\n\n../links/real:\nfile\n' -RF ../links
 
 # -C: GNU's column layout, with tabs, sized from COLUMNS
 COLUMNS=40 check "-C 40" 0 $'eight\tlongername_here  seven\tthree\neleven\tnine\t\t six\ttwelve\nfive\tone\t\t sub\ttwo\nfour\tself\t\t ten\tx\n' -C ../cols

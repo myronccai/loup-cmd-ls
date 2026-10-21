@@ -31,8 +31,10 @@ check:
 # Tests import project modules by their path under source/ (`from cli.args
 # import (...)`), the same way the sources do, so source/ goes on LOUPPATH.
 # Narrow the run with TEST_ARGS, e.g. `make test TEST_ARGS="--filter value"`.
+# --no-parallel: a listing test runs `test -h` in child processes, which
+# Stage0's parallel runner does not cope with reliably.
 test:
-	LOUPPATH=source$${LOUPPATH:+:$$LOUPPATH} $(LOUP_BOOTSTRAP) test $(TEST_ARGS)
+	LOUPPATH=source$${LOUPPATH:+:$$LOUPPATH} $(LOUP_BOOTSTRAP) test --no-parallel $(TEST_ARGS)
 
 # Native executable (needs clang). Windows writes $(BIN).exe.
 build: $(BIN)

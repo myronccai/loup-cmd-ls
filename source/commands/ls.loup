@@ -22,7 +22,7 @@ from core.math import (maxInt);
 from appinfo import (APP_NAME, EXIT_OK, EXIT_FAILURE, EXIT_TROUBLE);
 from cli.args import (Options);
 from commands.columns import (layout_columns);
-from commands.fsinfo import (Kind, join_path, read_names, names_key, operand_kind, entry_kind, missing_reason);
+from commands.fsinfo import (Kind, join_path, read_names, operand_kind, entry_kind, missing_reason);
 from commands.quote import (quote);
 
 pub const DEFAULT_WIDTH: int = 80;
@@ -124,7 +124,6 @@ pub func format_entries(entries: list[Entry], opts: Options, width: int): list[s
 # kinds when -F or -R needs them.
 pub func directory_entries(path: string, names: list[string], opts: Options): list[Entry] {
     let need_kinds = opts.classify or opts.recursive;
-    let key = if (need_kinds) { names_key(names) } else { "" };
     var entries: list[Entry] = [];
     var shown: list[string] = [];
     if (opts.all) {
@@ -137,7 +136,7 @@ pub func directory_entries(path: string, names: list[string], opts: Options): li
         }
     }
     for (name in shown) {
-        let kind = if (need_kinds) { entry_kind(path, name, key) } else { Kind.File };
+        let kind = if (need_kinds) { entry_kind(path, name) } else { Kind.File };
         entries.push(Entry(name = name, kind = kind));
     }
     return sort_entries(entries, opts.reverse);
