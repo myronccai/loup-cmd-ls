@@ -84,3 +84,11 @@ func test_missing_operand(): void {
     expectEq(listing.lines.join("|"), "tests/fixtures/tree/alpha", "the file is still listed");
     expectEq(listing.errors[0], "cannot access 'tests/fixtures/tree/nope': No such file or directory", "message");
 }
+
+# The exit status is the worst one met: a missing operand (2) stays 2 after
+# a directory that lists fine (0).
+func test_status_is_the_worst(): void {
+    let listing = list_operands(parse_args(["tests/fixtures/tree/nope", "tests/fixtures/tree"]).unwrap(), "");
+    expectEq(listing.status, 2, "serious trouble kept");
+    expect(listing.lines.len() > 0, "the directory is still listed");
+}

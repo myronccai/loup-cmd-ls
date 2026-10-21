@@ -54,7 +54,7 @@ Loup Lite comes from <https://github.com/code-craft-ai-company/loup-releases>;
 
 | Task | Command | Notes |
 |------|---------|-------|
-| Run from source | `make run ARGS="-F -R source"` | `loup run source/main.loup -- ARGS`; see the note on `loup run` below |
+| Run from source | `make run ARGS="-F -R source"` | `loup-bootstrap run source/main.loup -- ARGS` (Stage0); see the note on `loup run` below |
 | Type-check | `make check` | checks `source/main.loup` and every module it imports; tests are not checked |
 | Run all tests | `make test` | every `tests/*_test.loup` |
 | Run matching tests | `make test TEST_ARGS="--filter value"` | tests whose name contains `value` |
@@ -105,8 +105,8 @@ unit tests can check it; only `run_ls` prints.
   derived; keep that logic there.
 - The native `io.fs` never throws (a missing directory lists as empty),
   while the Stage0 interpreter used by `make test` throws `IoError`; code
-  must handle both. Under the self-hosted `loup run` (`make run`), `listDir`
-  hides dot-files, so `make run` and `build/ls` can differ.
+  must handle both. Under the self-hosted `loup run`, `listDir` hides
+  dot-files, which is why `make run` uses Stage0 (`loup-bootstrap run`).
 - `system.text.parseInt` and `system.env.get` do not link natively: parse
   digits by hand and read the environment with the prelude `env("NAME")`.
 - The skill's examples use the `loup init` layout (`src/`, `tests/`, and

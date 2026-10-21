@@ -68,7 +68,7 @@ license: <https://code-craft.ai/loup/license>.
 ```sh
 make build                    # native binary: build/ls
 make ci                       # check, unit tests, build, end-to-end tests
-make run ARGS="-F -R source"  # run from source with loup run
+make run ARGS="-F -R source"  # run from source (Stage0's loup-bootstrap run)
 ```
 
 In a small project with a dot-file, a dangling symbolic link (`old-link`)

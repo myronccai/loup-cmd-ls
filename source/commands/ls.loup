@@ -9,7 +9,7 @@
 # only `run_ls` writes them.
 #
 # Runtime: host.dual. Compiled into the native binary build/ls by
-# `make build`; `loup run source/main.loup` interprets the same code, and
+# `make build`; Stage0 interprets the same code for `make run`, and
 # tests/ls_test.loup exercises the pure parts under Stage0 (`make test`).
 #
 # Structure: helpers for single steps (parse_width for COLUMNS, is_shown,
@@ -18,6 +18,7 @@
 # list_operands splits the operands into files and directories and joins
 # their Listings. run_ls prints the result.
 
+from core.math import (maxInt);
 from appinfo import (APP_NAME, EXIT_OK, EXIT_FAILURE, EXIT_TROUBLE);
 from cli.args import (Options);
 from commands.columns import (layout_columns);
@@ -119,10 +120,6 @@ pub func format_entries(entries: list[Entry], opts: Options, width: int): list[s
     return cells;
 }
 
-func higher(a: int, b: int): int {
-    return if (a > b) { a } else { b };
-}
-
 # The entries of directory `path` that are shown, sorted, and with their
 # kinds when -F or -R needs them.
 pub func directory_entries(path: string, names: list[string], opts: Options): list[Entry] {
@@ -186,7 +183,7 @@ pub func list_directory(path: string, show_header: bool, opts: Options, width: i
             for (msg in sub.errors) {
                 errors.push(msg);
             }
-            status = higher(status, sub.status);
+            status = maxInt(status, sub.status);
         }
     }
     return Listing(lines = lines, errors = errors, status = status);
@@ -254,7 +251,7 @@ pub func list_operands(opts: Options, columns_env: string): Listing {
         for (msg in sub.errors) {
             errors.push(msg);
         }
-        status = higher(status, sub.status);
+        status = maxInt(status, sub.status);
     }
     return Listing(lines = lines, errors = errors, status = status);
 }

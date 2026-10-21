@@ -13,11 +13,11 @@
 #   uses that to keep -R out of linked directories and to mark them `@`.
 #
 # Runtime: host.dual. Compiled into the native binary build/ls by
-# `make build`; `loup run source/main.loup` interprets the same code. The
-# lanes differ in io.fs: the native build's io.fs never throws (a missing
-# directory lists as empty), the Stage0 interpreter used by `make test`
-# throws IoError, and the self-hosted `loup run` leaves dot-files out of
-# listDir. read_names handles the first two.
+# `make build`; Stage0 interprets the same code for `make run` and
+# `make test`. The lanes differ in io.fs: the native build's io.fs never
+# throws (a missing directory lists as empty) and Stage0 throws IoError;
+# read_names handles both. (The self-hosted `loup run`, whose listDir
+# leaves out dot-files, is not used.)
 
 from io.fs import (exists, isDir, isFile, listDir);
 from io.path import (basename, dirname);
