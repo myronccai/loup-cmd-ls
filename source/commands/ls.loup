@@ -7,6 +7,16 @@
 # Everything up to the final output is built as values: `list_operands`
 # returns the lines to print, the error messages and the exit status, and
 # only `run_ls` writes them.
+#
+# Runtime: host.dual. Compiled into the native binary build/ls by
+# `make build`; `loup run source/main.loup` interprets the same code, and
+# tests/ls_test.loup exercises the pure parts under Stage0 (`make test`).
+#
+# Structure: helpers for single steps (parse_width for COLUMNS, is_shown,
+# sort_entries, indicator, format_entries), then the two levels of a
+# listing: list_directory lists one directory and recurses for -R, and
+# list_operands splits the operands into files and directories and joins
+# their Listings. run_ls prints the result.
 
 from appinfo import (APP_NAME, EXIT_OK, EXIT_FAILURE, EXIT_TROUBLE);
 from cli.args import (Options);

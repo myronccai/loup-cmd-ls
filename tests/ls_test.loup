@@ -1,7 +1,12 @@
 @mode(host.dual)
 
-# Pure parts of the listing, plus a listing of tests/fixtures/tree (the tests
-# run from the repository root).
+# Unit tests for the pure parts of the listing (source/commands/ls.loup and
+# quote.loup), plus a listing of tests/fixtures/tree (the tests run from the
+# repository root).
+#
+# Runtime: host.dual, run by the test runner: `make test` interprets this file
+# with Stage0 (`loup-bootstrap test`, source/ on LOUPPATH), one test per
+# `func test_*()`. It is not part of the binary.
 
 from debug.assert import (expect, expectEq);
 from cli.args import (parse_args);

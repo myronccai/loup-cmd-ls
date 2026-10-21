@@ -5,6 +5,15 @@
 # as wide as its longest name plus two spaces, the most columns that fit
 # strictly inside the line width win, and the gaps are filled with tabs
 # (tab stops every 8 columns) and spaces.
+#
+# Runtime: host.dual. Compiled into the native binary build/ls by
+# `make build`; `loup run source/main.loup` interprets the same code, and
+# tests/columns_test.loup exercises it under Stage0 (`make test`).
+#
+# Structure: fit_columns tries every column count at once in a single pass
+# over the names, dropping a count as soon as its line grows too long, and
+# keeps the largest count still valid; layout_columns then prints the rows
+# using those widths.
 
 # The narrowest possible column: a one-character name and its two-space gap.
 const MIN_COLUMN_WIDTH: int = 3;
